@@ -83,9 +83,6 @@ python run_backtest.py
 # View comprehensive analysis
 jupyter notebook Report.ipynb
 
-# Explore Kelly criterion research
-jupyter notebook adaptive_kelly_simulation.ipynb
-
 # Run tests
 pytest tests/
 ```
