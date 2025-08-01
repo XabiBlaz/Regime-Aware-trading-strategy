@@ -1,0 +1,82 @@
+# Python Virtual Environment
+/quant-project/
+venv/
+env/
+.env
+.venv
+
+# Python Cache and Build Files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Data Files (potentially large or sensitive)
+data/cache/
+*.csv
+*.h5
+*.hdf5
+*.parquet
+*.feather
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints/
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs and Temporary Files
+*.log
+tmp/
+temp/
+
+# API Keys and Secrets (if any)
+.env
+config/secrets.yml
+api_keys.txt
+
+# Large Output Files
+*.png
+*.jpg
+*.pdf
+reports/
+output/
+
+# Package Manager Files
+poetry.lockt
+/.
