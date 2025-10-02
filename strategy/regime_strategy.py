@@ -36,9 +36,9 @@ class RegimeAwareStrategy:
 
         for t in weights.index:
             reg = self.regimes.loc[t]
-            if reg in (Regime.LOW, Regime.MEDIUM):
+            if reg in (Regime.LOW.value, Regime.MEDIUM.value):
                 w = self._mom_pos.loc[t].copy()
-                if reg is Regime.MEDIUM:
+                if reg == Regime.MEDIUM.value:
                     w *= 0.5                # half-size in MEDIUM regime
             else:                           # HIGH
                 w = self._pair_pos.loc[t].copy()
