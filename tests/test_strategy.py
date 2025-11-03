@@ -10,7 +10,7 @@ from signals.volatility import load_prices_and_vix
 
 def test_strategy_positions():
     """Test that strategy generates valid position weights."""
-    prices, vix = load_prices_and_vix()
+    prices, vix = load_prices_and_vix(prefer_download=False)
     
     # Use subset for testing
     prices = prices.iloc[:400]

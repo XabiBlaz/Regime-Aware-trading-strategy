@@ -12,7 +12,7 @@ from signals.volatility import load_prices_and_vix
 
 def test_momentum():
     """Test momentum signal generation."""
-    prices, _ = load_prices_and_vix()
+    prices, _ = load_prices_and_vix(prefer_download=False)
     prices = prices.iloc[:300]  # VIX already separated - no need to drop
     
     z = momentum_zscores(prices)
@@ -22,7 +22,7 @@ def test_momentum():
 
 def test_pairs():
     """Test pairs trading signals."""
-    prices, _ = load_prices_and_vix()
+    prices, _ = load_prices_and_vix(prefer_download=False)
     prices = prices.iloc[:300]  # VIX already separated
     
     pos = pairs_positions(prices)

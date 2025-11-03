@@ -9,7 +9,7 @@ from signals.volatility import load_prices_and_vix
 
 def test_data_shape():
     """Test data loading and basic properties."""
-    prices, vix = load_prices_and_vix()
+    prices, vix = load_prices_and_vix(prefer_download=False)
     
     # VIX should be SEPARATED, not included in prices
     assert "^VIX" not in prices.columns, "VIX should be separated from prices"

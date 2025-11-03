@@ -12,7 +12,7 @@ from signals.volatility import load_prices_and_vix
 def test_data_quality():
     """Test data quality and completeness."""
     try:
-        prices, vix = load_prices_and_vix()
+        prices, vix = load_prices_and_vix(prefer_download=False)
         
         # Data quality checks
         assert not prices.empty, "Price data should not be empty"
@@ -39,7 +39,7 @@ def test_data_quality():
 def test_backtest_runs():
     """Test that the backtest runs without errors and produces reasonable results."""
     try:
-        prices, vix = load_prices_and_vix()
+        prices, vix = load_prices_and_vix(prefer_download=False)
         
         # Use subset for testing
         prices = prices.iloc[:600]

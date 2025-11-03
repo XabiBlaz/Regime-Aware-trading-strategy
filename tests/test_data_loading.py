@@ -11,7 +11,7 @@ from signals.volatility import load_prices_and_vix
 def test_data_loading():
     """Test that data loading works correctly."""
     try:
-        prices, vix = load_prices_and_vix()
+        prices, vix = load_prices_and_vix(prefer_download=False)
         
         # Basic validation
         assert not prices.empty, "Price data should not be empty"

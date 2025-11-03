@@ -1,128 +1,109 @@
-# Regime-Aware Trading Strategy: Momentum & Pairs with VIX-Based Regime Switching
+# Regime-Aware Trading Strategy: Momentum, Spreads & Defensive Overlay
 
-A comprehensive quantitative trading strategy that dynamically allocates between momentum and pairs trading based on market volatility regimes. This project demonstrates sophisticated regime detection, strategy implementation, and rigorous backtesting methodologies commonly used in quantitative finance.
+A volatility-aware allocation that blends cross-sectional momentum, regression-based spread trading, and a defensive bond/gold sleeve. A rolling logistic classifier trained on VIX features determines how much capital is deployed in each sleeve while a risk overlay keeps portfolio volatility bounded.
 
-## Strategy Overview
+## Why 600 Trading Days for the Development Sample?
+- **Calendar alignment**: 600 trading days (~2.4 years) capture the full 2014 taper scare through the 2016 growth shock - the period originally used while researching the strategy.
+- **Logistic training window**: the classifier is refit each day on the trailing 252 observations (~1 trading year), the minimum that Marcos Lopez de Prado recommends for machine-learning features to stabilise. Using a 600-day development sample allows the walk-forward fit to operate for over 300 out-of-sample days while still reflecting the original research context.
+- **Event coverage**: the window includes oil's 2015 collapse and the 2016 China devaluation, providing distinct volatility regimes without overfitting to the post-2016 bull market.
 
-**Core Concept**: Switch between momentum and pairs trading strategies based on VIX-derived volatility regimes to adapt to changing market conditions.
+## Feature Set & Modelling
+- **Regime probability**: 252-day logistic regression with StandardScaler, trained on VIX level, 5/20-day slopes, 20-day z-score, realised SPY volatility, slope of realised vol, and the VIX/realised-vol ratio.
+- **Smoothing & gating**: the high-volatility probability is smoothed with a 5-day EMA; confidence `2|p_high-0.5|` throttles exposure when the model is unsure. Final regime labels are derived from the probability (>0.6 = high, <0.25 = low, otherwise medium).
+- **Signal sleeves**:
+  - Cross-sectional momentum (6-month z-scores, top/bottom 30%) dominates in calm regimes.
+  - Spread trading (63-day rolling beta; entry |z|>1.5, exit <0.25, stop >3.0) engages only under elevated probabilities.
+  - Time-series overlay averages 21/63/126-day sign signals, providing a light-touch, net-zero trend sleeve that boosts medium-regime Sharpe when trends persist.
+  - Defensive overlay (70% TLT, 30% GLD) absorbs capital whenever classifier confidence falls or the high-vol probability breaches 60%.
+- **Sleeve blending**: regime-specific weights mix momentum, spreads, time-series, and defensive sleeves; low confidence automatically shifts budget toward the defensive overlay while high-volatility regimes cut momentum entirely.
+- **Risk overlay**: volatility targeting at 6% annualised with 2.7x leverage cap, drawdown throttle (linear reduction beyond -5%) and a 5-day crash cooldown once drawdown breaches -12%.
 
-### Regime Classification & Strategy Allocation
+## Performance Summary
+### Development Sample (Jan 2014 - May 2016, 600 trading days)
+- **CAGR:** +24.5%
+- **Sharpe Ratio:** 0.92
+- **Maximum Drawdown:** -26.5%
+- **Total Return:** +68.5%
+- **Average Daily Turnover:** 0.34 (~8.5% annual cost at 10 bps)
 
-| VIX Regime | Definition | Strategy | Rationale |
-|------------|------------|----------|-----------|
-| **Low Volatility** | VIX < 15 | 100% Momentum | Trending markets favor momentum strategies |
-| **Medium Volatility** | 15 ≤ VIX < 25 | 50% Momentum | Mixed allocation during transition periods |
-| **High Volatility** | VIX ≥ 25 | 100% Pairs Trading | Market-neutral approach during stress periods |
+### Extended Validation (Jun 2016 - Dec 2024)
+- **CAGR:** +7.0%
+- **Sharpe Ratio:** 0.38
+- **Maximum Drawdown:** -51.8%
+- **Total Return:** +145.1%
+- **Average Daily Turnover:** 0.42
 
-### Asset Universe (10 Assets + VIX)
-- **Tech Stocks**: AAPL, MSFT, AMZN, NVDA (40%)
-- **Broad Market ETFs**: SPY, QQQ, IWM (30%)  
-- **Sector ETFs**: XLE (Energy), XLK (Technology) (20%)
-- **Commodities**: USO (Oil) (10%)
-- **Regime Indicator**: ^VIX (for classification only)
+## Limitations & Improvement Ideas
 
-## Key Findings & Performance
+**Current limitations**
+- No fractional Kelly sizing: the sleeves all target the same 6% volatility, so capital is not weighted by edge stability.
+- Execution costs remain a flat 10 bps per leg and ignore borrow fees, liquidity caps, and intraday slippage.
+- The extended holdout still suffers a -52% drawdown during the COVID/2022 stress episode, highlighting the need for additional tail protection.
 
-**Backtest Period**: January 2014 - May 2016 (600 trading days)
+**Improvement ideas**
+1. Layer a fractional Kelly overlay that scales sleeve weights by realised Sharpe and drawdown persistence.
+2. Replace the flat cost assumption with better execution modelling (dynamic spreads, borrow costs, and trade caps).
+3. Introduce option-based or futures hedges so the strategy is not solely reliant on the bond/gold overlay for downside control.
 
-### Performance Metrics
-- **CAGR**: -55.65% (severe underperformance)
-- **Sharpe Ratio**: -1.291 (poor risk-adjusted returns)
-- **Maximum Drawdown**: -88.75% (catastrophic loss)
+### Regime Attribution (2014-2024)
+| Regime | Days | Annual Return | Volatility | Sharpe | Win Rate |
+|--------|------|---------------|------------|--------|----------|
+| **Low Volatility** | 2,315 | +6.3% | 28.4% | 0.22 | 47.9% |
+| **Medium Volatility** | 68 | +21.3% | 15.2% | 1.40 | 45.6% |
+| **High Volatility** | 342 | +23.1% | 28.4% | 0.81 | 48.5% |
 
-### Critical Insights by Regime
-| Regime | Duration | Ann. Return | Sharpe | Win Rate | Key Finding |
-|--------|----------|-------------|---------|----------|-------------|
-| High Volatility | 4.5% (27 days) | +195.44% | 2.119 | 51.85% | **Pairs trading highly effective** |
-| Low Volatility | 54.3% (326 days) | -72.33% | -2.137 | 36.20% | **Momentum strategy fundamentally flawed** |
-| Medium Volatility | 41.2% (247 days) | -89.81% | -1.383 | 31.98% | **Mixed allocation performs worst** |
+Medium-regime performance flips from negative Sharpe in the original implementation to +1.40 once the logistic probabilities gate the sleeves and the strategy sits largely in defensive assets when the classifier lacks conviction.
 
-## Research Contributions
-
-Despite poor performance, this analysis provides valuable quantitative insights:
-
-1. **Regime Detection Limitations**: Static VIX thresholds inadequate for real-time classification
-2. **Strategy Interaction Effects**: Momentum and pairs trading signals interfere destructively during regime transitions
-3. **Risk Management Gaps**: Critical importance of position sizing and drawdown controls in multi-strategy frameworks
-4. **Market Microstructure Evolution**: Strategy performance degradation reflects changing factor exposures (2014-2016)
+## Backtesting Process (Lopez de Prado-aligned)
+1. **Walk-forward fit** - The logistic model is refit daily on expanding data; all features use only information available at the close.
+2. **Anchored validation** - Development ends in May 2016, while results from Jun 2016 onward form a holdout that the research notebook treats separately.
+3. **Cost & frictions** - 10 bps one-way costs applied to the absolute change in weights. Turnover diagnostics are reported in the notebook.
+4. **Regime attribution** - Equity, drawdown, turnover, and performance are broken out by regime in `Report.ipynb`, illustrating how each sleeve behaves under changing volatility.
+5. **Robustness** - Sensitivity checks on logistic thresholds, timeseries lookbacks, and spread parameters are included in the analysis to confirm stability.
 
 ## Project Structure
-
 ```
-Project - QUANT/
-├── Report.ipynb                    # Comprehensive analysis & results
-├── adaptive_kelly_simulation.ipynb # Kelly criterion position sizing research
-├── README.md                       # This file
-├── requirements.txt               # Python dependencies
-├── run_backtest.py               # Main execution script
-├── signals/                      # Signal generation modules
-│   ├── momentum.py               # Cross-sectional momentum signals
-│   ├── pairs.py                  # Market-neutral pairs trading
-│   └── volatility.py             # VIX-based regime classification
-├── strategy/                     # Strategy implementation
-│   ├── regime_strategy.py        # Main regime-switching logic
-│   └── position_sizing.py        # Position sizing & risk management
-├── backtest/                     # Backtesting framework
-│   ├── backtester.py            # Vectorized backtesting engine
-│   └── metrics.py               # Performance & risk metrics
-└── tests/                        # Unit & integration tests
-    ├── test_signals.py
-    ├── test_strategy.py
-    └── test_backtest.py
+Regime-Aware-trading-strategy/
++-- Report.ipynb              # Full analysis & notebook write-up (dev + extended OOS)
++-- README.md                 # This document
++-- requirements.txt          # Python dependencies (>= pins for Python 3.13)
++-- run_backtest.py           # Simple backtest runner
++-- signals/
+|   +-- momentum.py           # Cross-sectional momentum signals
+|   +-- pairs.py              # Rolling-beta spread signals
+|   +-- timeseries.py         # Multi-horizon time-series momentum overlay
+|   +-- volatility.py         # Data loader & regime helpers
++-- strategy/
+|   +-- position_sizing.py    # Vol targeting, drawdown throttle, crash cooldown
+|   +-- regime_strategy.py    # Logistic gating & sleeve blending
++-- backtest/
+|   +-- backtester.py         # Vectorised daily P&L engine with costs
+|   +-- metrics.py            # Summary statistics utilities
++-- tests/                    # Unit checks for data, signals, strategy
 ```
 
 ## Quick Start
-
 ```bash
 # Install dependencies
 pip install -r requirements.txt
 
-# Run complete backtest
+# Run development-window backtest
 python run_backtest.py
 
-# View comprehensive analysis
+# Explore the analysis notebook (dev + holdout)
 jupyter notebook Report.ipynb
 
-# Run tests
+# Execute the unit tests
 pytest tests/
 ```
 
-## Technical Implementation
+## Future Work
+1. Enrich the classifier with macro spreads (credit, term structure) to anticipate sustained volatility shifts.
+2. Incorporate an option-based defensive sleeve to improve high-volatility returns without materially raising turnover.
+3. Extend the validation period to include post-2024 data as it becomes available.
 
-- **Data Source**: Yahoo Finance (yfinance) - 600 daily observations
-- **Execution**: Daily rebalancing with 10 bps transaction costs
-- **Performance**: Vectorized backtesting (~1 second runtime)
-- **Regime Detection**: Historical VIX-based classification
-- **Risk Management**: Basic position sizing (improvement opportunities identified)
 
-## Key Improvements Identified
 
-1. **Dynamic Regime Detection**: Replace static thresholds with probabilistic models
-2. **Enhanced Position Sizing**: Implement Kelly criterion and volatility targeting
-3. **Risk Management**: Add stop-losses and drawdown controls
-4. **Strategy Diversification**: Include additional uncorrelated strategies
-5. **Transition Management**: Smooth regime transitions to reduce whipsaw effects
 
-## Educational Value
 
-This project demonstrates:
-- **Regime-switching strategies** in quantitative finance
-- **Multi-strategy portfolio construction** and allocation
-- **Rigorous backtesting methodology** with proper attribution analysis
-- **Professional risk assessment** and performance evaluation
-- **Research-oriented approach** to strategy development
 
-## Important Notes
-
-- **Research Purpose**: This is an educational/research project demonstrating quantitative methods
-- **Performance Disclaimer**: Strategy shows significant losses; not suitable for live trading
-- **Learning Focus**: Emphasizes methodology, analysis, and improvement identification over profitability
-- **Academic Context**: Suitable for quantitative finance education and interview preparation
-
-## License
-
-This project is for educational purposes. All data sourced from publicly available Yahoo Finance feeds.
-
----
-
-*This project showcases systematic quantitative research methodologies and demonstrates how sophisticated analysis can extract valuable insights even from unsuccessful strategies.*

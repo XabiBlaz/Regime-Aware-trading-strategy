@@ -4,19 +4,34 @@ Volatility regime detection + realised vol + data loader.
 from __future__ import annotations
 from enum import Enum
 from pathlib import Path
-from typing import Tuple
+from typing import Callable, Optional, Tuple
 
 import pandas as pd
 import numpy as np
-import yfinance as yf
 import time
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "cache"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+try:  # pragma: no cover - optional dependency
+    import yfinance as yf
+except ImportError:  # pragma: no cover - offline fallback
+    yf = None
+
+DATA_DIR: Optional[Path]
+_data_dir_candidate = Path(__file__).resolve().parents[1] / "data" / "cache"
+try:
+    _data_dir_candidate.mkdir(parents=True, exist_ok=True)
+except OSError:
+    DATA_DIR = None
+else:
+    DATA_DIR = _data_dir_candidate
+
+CACHE_PRICES = "prices.csv"
+CACHE_VIX = "vix.csv"
 
 TICKERS = [
     "AAPL", "MSFT", "AMZN", "NVDA",
-    "SPY", "QQQ", "IWM", "XLE", "XLK", "USO", "^VIX"
+    "SPY", "QQQ", "IWM", "XLE", "XLK", "USO",
+    "TLT", "GLD",
+    "^VIX"
 ]
 START = "2014-01-01"
 
@@ -27,40 +42,102 @@ class Regime(Enum):
     HIGH = "high_vol"
 
 
-def load_prices_and_vix() -> Tuple[pd.DataFrame, pd.Series]:
+def _cache_paths() -> Tuple[Optional[Path], Optional[Path]]:
+    if DATA_DIR is None:
+        return None, None
+    return DATA_DIR / CACHE_PRICES, DATA_DIR / CACHE_VIX
+
+
+def _load_from_cache() -> Optional[Tuple[pd.DataFrame, pd.Series]]:
+    prices_path, vix_path = _cache_paths()
+    if not prices_path or not vix_path:
+        return None
+    if not prices_path.exists() or not vix_path.exists():
+        return None
+
+    try:
+        prices = pd.read_csv(prices_path, index_col=0, parse_dates=True)
+        vix_df = pd.read_csv(vix_path, index_col=0, parse_dates=True)
+    except Exception:
+        return None
+
+    if prices.empty or vix_df.empty:
+        return None
+
+    vix = vix_df.iloc[:, 0]
+    vix.name = "^VIX"
+
+    prices = prices.sort_index()
+    vix = vix.sort_index()
+
+    aligned_index = prices.index.intersection(vix.index)
+    if aligned_index.empty:
+        return None
+
+    prices = prices.loc[aligned_index]
+    vix = vix.loc[aligned_index]
+    return prices, vix
+
+
+def _save_to_cache(prices: pd.DataFrame, vix: pd.Series) -> None:
+    prices_path, vix_path = _cache_paths()
+    if not prices_path or not vix_path:
+        return
+
+    try:
+        prices.to_csv(prices_path)
+        vix.to_frame(name="^VIX").to_csv(vix_path)
+    except OSError:
+        # Read-only environments are acceptable; simply skip caching.
+        pass
+
+
+def load_prices_and_vix(force_refresh: bool = False, prefer_download: bool = True) -> Tuple[pd.DataFrame, pd.Series]:
     """
-    Load price data and VIX with robust error handling and retries.
-    
+    Load price data and VIX with robust error handling, caching, and retries.
+
+    Args:
+        force_refresh: Skip cached files and re-download data.
+        prefer_download: If False, skip network calls and fall back to cached or
+            synthetic data immediately.
+
     Returns:
         Tuple of (prices DataFrame, VIX Series)
     """
-    # Try different download strategies
-    for attempt in range(3):
+    if not force_refresh:
+        cached = _load_from_cache()
+        if cached:
+            return cached
+
+    loaders: list[tuple[str, Callable[[], Tuple[pd.DataFrame, pd.Series]]]] = []
+    if prefer_download and yf is not None:
+        loaders.extend([
+            ("Downloading all tickers together", _download_all_together),
+            ("Downloading tickers individually", _download_individually),
+        ])
+    loaders.append(("Using fallback data", _create_mock_data))
+
+    last_error: Optional[Exception] = None
+    for attempt, (label, loader) in enumerate(loaders, start=1):
         try:
-            if attempt == 0:
-                # Strategy 1: Download all at once
-                print(f"Attempt {attempt + 1}: Downloading all tickers together...")
-                return _download_all_together()
-            elif attempt == 1:
-                # Strategy 2: Download individually with retries
-                print(f"Attempt {attempt + 1}: Downloading tickers individually...")
-                return _download_individually()
-            else:
-                # Strategy 3: Use cached/mock data
-                print(f"Attempt {attempt + 1}: Using fallback data...")
-                return _create_mock_data()
-                
-        except Exception as e:
-            print(f"Attempt {attempt + 1} failed: {e}")
-            if attempt < 2:
-                print("Retrying...")
+            print(f"Attempt {attempt}: {label}...")
+            prices, vix = loader()
+            _save_to_cache(prices, vix)
+            return prices, vix
+        except Exception as exc:  # pragma: no cover - defensive path
+            last_error = exc
+            if attempt < len(loaders) and loader is not _create_mock_data:
+                print(f"Attempt {attempt} failed: {exc}")
                 time.sleep(2)
-            continue
-    
-    raise RuntimeError("All data loading attempts failed")
+            else:
+                print(f"Attempt {attempt} failed: {exc}")
+
+    raise RuntimeError("All data loading attempts failed") from last_error
 
 def _download_all_together() -> Tuple[pd.DataFrame, pd.Series]:
     """Download all tickers at once."""
+    if yf is None:
+        raise RuntimeError("yfinance is not available")
     data = yf.download(
         TICKERS, 
         start=START, 
@@ -102,6 +179,8 @@ def _download_all_together() -> Tuple[pd.DataFrame, pd.Series]:
 
 def _download_individually() -> Tuple[pd.DataFrame, pd.Series]:
     """Download each ticker individually with retries."""
+    if yf is None:
+        raise RuntimeError("yfinance is not available")
     all_data = {}
     
     for ticker in TICKERS:
@@ -156,38 +235,33 @@ def _download_individually() -> Tuple[pd.DataFrame, pd.Series]:
 def _create_mock_data() -> Tuple[pd.DataFrame, pd.Series]:
     """Create mock data for testing when downloads fail."""
     print("Creating mock data for testing...")
-    
+
     # Create date range
-    dates = pd.date_range(start=START, end="2024-12-31", freq='D')
-    dates = dates[dates.weekday < 5]  # Business days only
-    
-    # Create mock price data
+    dates = pd.date_range(start=START, end="2024-12-31", freq="B")
     np.random.seed(42)  # For reproducibility
-    n_assets = 8
     n_days = len(dates)
-    
-    # Generate realistic price paths
-    initial_prices = [100, 150, 200, 300, 400, 50, 75, 25]
-    asset_names = ["AAPL", "MSFT", "AMZN", "SPY", "QQQ", "IWM", "XLE", "XLK"]
-    
+
+    asset_names = [ticker for ticker in TICKERS if ticker != "^VIX"]
+    base_prices = np.linspace(40, 220, len(asset_names))
+
     price_data = {}
-    for i, asset in enumerate(asset_names):
+    for initial_price, asset in zip(base_prices, asset_names):
         # Generate returns with some volatility and drift
         returns = np.random.normal(0.0005, 0.02, n_days)  # 0.05% daily return, 2% volatility
-        prices = [initial_prices[i]]
-        
+        prices = [initial_price]
+
         for r in returns[1:]:
             prices.append(prices[-1] * (1 + r))
-        
+
         price_data[asset] = prices
-    
+
     prices_df = pd.DataFrame(price_data, index=dates)
-    
+
     # Generate VIX data (volatility index)
     vix_data = np.random.lognormal(mean=np.log(20), sigma=0.3, size=n_days)
     vix_data = np.clip(vix_data, 10, 80)  # Realistic VIX range
     vix_series = pd.Series(vix_data, index=dates, name="^VIX")
-    
+
     print(f"Mock data created: {len(prices_df)} observations for {len(prices_df.columns)} assets")
     return prices_df, vix_series
 
